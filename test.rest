@@ -1,0 +1,5 @@
+{
+    "businessname":"goldcrest",
+    "email":"goldcrest@test.com",
+    "password":"password123"
+}
