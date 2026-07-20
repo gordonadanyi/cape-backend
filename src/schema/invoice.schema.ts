@@ -93,6 +93,15 @@ export class Invoice {
 
   @Prop([String])
   extractionWarnings?: string[];
+
+  @Prop()
+  beforeReminderSentAt?: Date;
+
+  @Prop()
+  onDueReminderSentAt?: Date;
+
+  @Prop()
+  afterReminderSentAt?: Date;
 }
 
 export const InvoiceSchema = SchemaFactory.createForClass(Invoice);

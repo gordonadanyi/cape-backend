@@ -9,10 +9,17 @@ import { SettingsModule } from './settings/settings.module';
 import { MailerService } from './mailer/mailer.service';
 import { MailerController } from './mailer/mailer.controller';
 import { MailerModule } from './mailer/mailer.module';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 
 @Module({
   imports: [
-    MongooseModule.forRoot('mongodb://localhost:27017/cape-backend'),
+    ConfigModule.forRoot({ isGlobal: true }),
+    MongooseModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => ({
+        uri: config.get<string>('MONGODB_URI'),
+      }),
+    }),
     ThrottlerModule.forRoot({
       throttlers: [{ limit: 4, ttl: 10 * 1000 }],
       errorMessage: 'Too many request',

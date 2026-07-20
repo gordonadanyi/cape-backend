@@ -12,6 +12,10 @@
  * - Surface *what it couldn't find or wasn't confident about*, so the
  *   caller can flag those fields for manual review instead of silently
  *   shipping a wrong amount or date.
+ * - De-glue table cells that pdf-parse extracted with no whitespace
+ *   between them (e.g. "Email gordonadanyi@gmail.com Currency NGN" coming
+ *   out as one zero-space blob) before running any field extraction, so
+ *   a greedy regex can't swallow an adjacent cell's text.
  */
 
 export interface ExtractedInvoiceData {
@@ -28,7 +32,7 @@ export interface InvoiceExtractionResult {
   warnings: string[];
 }
 
-const EMAIL_REGEX = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/;
+const EMAIL_REGEX = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/;
 
 // Ordered by how "final" the label usually is — grand total should win
 // over a subtotal if both are present.
@@ -42,29 +46,56 @@ const AMOUNT_LABELS = [
 ];
 
 const DUE_DATE_LABELS = ['due date', 'payment due', 'due by'];
-const INVOICE_NUMBER_LABELS = ['invoice number', 'invoice no', 'invoice #', 'invoice#'];
-const CUSTOMER_NAME_LABELS = ['bill to', 'customer name', 'billed to', 'client'];
+const INVOICE_NUMBER_LABELS = [
+  'invoice number',
+  'invoice no',
+  'invoice #',
+  'invoice#',
+];
+const CUSTOMER_NAME_LABELS = [
+  'bill to',
+  'customer name',
+  'billed to',
+  'client',
+];
 const CUSTOMER_EMAIL_LABELS = ['customer email', 'billing email', 'email'];
 
+// Words that commonly appear as the *next* label glued directly onto a
+// value with no separator (e.g. "Adanyi GordonDue Date..." or
+// "INV-2026-0912Issue Date..."). Used to detect where a captured value
+// actually ends, even for labels we don't separately extract as fields.
+const STOP_WORDS = [
+  ...AMOUNT_LABELS,
+  ...DUE_DATE_LABELS,
+  ...INVOICE_NUMBER_LABELS,
+  ...CUSTOMER_NAME_LABELS,
+  ...CUSTOMER_EMAIL_LABELS,
+  'issue date',
+  'invoice date',
+  'currency',
+  'reference',
+  'due',
+];
+
 export class PdfInvoiceExtractor {
-  /**
-   * @param dateFormat  The user's preferred date format (e.g. from
-   *                    Settings.dateFormat), used to disambiguate
-   *                    formats like 03/04/2026 where both DD/MM and
-   *                    MM/DD are structurally valid.
-   */
-  extract(rawText: string, dateFormat: string = 'DD/MM/YYYY'): InvoiceExtractionResult {
+  extract(
+    rawText: string,
+    dateFormat: string = 'DD/MM/YYYY',
+  ): InvoiceExtractionResult {
     const warnings: string[] = [];
-    const lines = this.normalizeLines(rawText);
+    const lines = this.normalizeLines(this.deglueText(rawText));
 
     const invoiceNumber = this.findLabeledValue(lines, INVOICE_NUMBER_LABELS);
-    if (!invoiceNumber) warnings.push('Invoice number not found — please confirm manually.');
+    if (!invoiceNumber)
+      warnings.push('Invoice number not found — please confirm manually.');
 
     const customerName = this.findLabeledValue(lines, CUSTOMER_NAME_LABELS);
-    if (!customerName) warnings.push('Customer name not found — please confirm manually.');
+    if (!customerName)
+      warnings.push('Customer name not found — please confirm manually.');
 
     const customerEmail = this.extractCustomerEmail(lines);
-    if (!customerEmail) warnings.push('Customer email not found — please add it manually.');
+    if (!customerEmail)
+      warnings.push('Customer email not found — please add it manually.');
 
     const amountResult = this.extractAmount(lines);
     if (!amountResult) {
@@ -96,7 +127,30 @@ export class PdfInvoiceExtractor {
     };
   }
 
-  /** Split into trimmed, non-empty lines so we can look "one line down" from a label. */
+  /**
+   * pdf-parse frequently extracts tightly-packed table cells with zero
+   * whitespace between them — e.g. a row like
+   *   Email | gordonadanyi@gmail.com | Currency | NGN
+   * can come out as "Emailgordonadanyi@gmail.comCurrencyNGN". A greedy
+   * regex then has nothing to stop it from swallowing the next cell's text.
+   * The same glueing happens at digit/letter boundaries too, e.g.
+   * "Bill To Adanyi Gordon Due Date 01 August 2026" losing all its spaces
+   * around "...GordonDueDate01August...".
+   *
+   * Fix: insert a space at each of these boundary shapes:
+   *  - lowercase run -> uppercase letter ("comCurrency" -> "com Currency").
+   *    Requires 2+ lowercase letters first, so short prefixes like "Mc" in
+   *    "McDonald" don't get false-split.
+   *  - digit -> uppercase letter ("0912Issue" -> "0912 Issue")
+   *  - lowercase letter -> digit ("Date18" -> "Date 18")
+   */
+  private deglueText(text: string): string {
+    return text
+      .replace(/([a-z]{2,})([A-Z])/g, '$1 $2')
+      .replace(/(\d)([A-Z])/g, '$1 $2')
+      .replace(/([a-z])(\d)/g, '$1 $2');
+  }
+
   private normalizeLines(text: string): string[] {
     return text
       .split(/\r?\n/)
@@ -104,15 +158,15 @@ export class PdfInvoiceExtractor {
       .filter((line) => line.length > 0);
   }
 
-  /**
-   * Finds a value for a label whether it's:
-   *  - "Label: Value" or "Label - Value" on the same line
-   *  - "Label" on one line, "Value" on the next non-empty line
-   */
-  private findLabeledValue(lines: string[], labels: string[]): string | undefined {
+  private findLabeledValue(
+    lines: string[],
+    labels: string[],
+  ): string | undefined {
     for (const label of labels) {
-      // Word boundary before the label so "total" doesn't match inside "subtotal".
-      const labelRegex = new RegExp(`(?:^|[^a-z])(${this.escapeRegex(label)})`, 'i');
+      const labelRegex = new RegExp(
+        `(?:^|[^a-z])(${this.escapeRegex(label)})`,
+        'i',
+      );
 
       for (let i = 0; i < lines.length; i++) {
         const match = lines[i].match(labelRegex);
@@ -120,14 +174,15 @@ export class PdfInvoiceExtractor {
 
         const idx = match.index + match[0].indexOf(match[1]);
 
-        // Same-line value: strip the label and any leading punctuation/whitespace.
-        const remainder = lines[i].slice(idx + label.length).replace(/^[:\-–\s]+/, '').trim();
+        const remainder = lines[i]
+          .slice(idx + label.length)
+          .replace(/^[:\-–.\s]+/, '')
+          .trim();
+
         if (remainder) {
-          return remainder;
+          return remainder.split(this.stopWordLookahead())[0].trim();
         }
 
-        // Label sat alone on its line — take the next non-empty line as the value,
-        // but don't walk into what looks like a *different* label.
         const next = lines[i + 1];
         if (next && !this.looksLikeLabel(next)) {
           return next.trim();
@@ -141,43 +196,57 @@ export class PdfInvoiceExtractor {
     return value.replace(/[.*+?^${}()|[\]\\#]/g, '\\$&');
   }
 
-  /** Heuristic: short line ending in a colon, or matching a known label, is probably a label not a value. */
+  /**
+   * Builds a lookahead that splits a captured value right before the next
+   * glued-on label word begins — e.g. "Adanyi Gordon Due Date..." splits
+   * before "Due". Longest phrases first, so "due date" matches as a whole
+   * before the bare "due" fallback would cut it in a different place.
+   */
+  private stopWordLookahead(): RegExp {
+    const sorted = [...STOP_WORDS].sort((a, b) => b.length - a.length);
+    const alternatives = sorted.map((w) => this.escapeRegex(w)).join('|');
+    return new RegExp(`\\s{2,}|(?=\\b(?:${alternatives})\\b)`, 'i');
+  }
+
   private looksLikeLabel(line: string): boolean {
     if (/:$/.test(line)) return true;
     const lower = line.toLowerCase();
-    return [
-      ...AMOUNT_LABELS,
-      ...DUE_DATE_LABELS,
-      ...INVOICE_NUMBER_LABELS,
-      ...CUSTOMER_NAME_LABELS,
-      ...CUSTOMER_EMAIL_LABELS,
-    ].some((label) => lower.startsWith(label));
+    return STOP_WORDS.some((label) => lower.startsWith(label));
   }
 
-  /** Emails are unambiguous by pattern, so scan near the label first, then fall back to the whole document. */
+  /**
+   * Emails are unambiguous by pattern, so scan every line for the pattern.
+   * Even after de-gluing, a label can still sit directly against the
+   * value with no separator at all (e.g. "Email" immediately followed by
+   * "gordonadanyi..." — no case-transition for deglueText to catch, since
+   * both are lowercase after the first letter) — so we additionally strip
+   * a known label word off the front of whatever we matched.
+   */
   private extractCustomerEmail(lines: string[]): string | undefined {
-    for (const label of CUSTOMER_EMAIL_LABELS) {
-      for (let i = 0; i < lines.length; i++) {
-        if (!lines[i].toLowerCase().includes(label)) continue;
-        const window = [lines[i], lines[i + 1] ?? ''].join(' ');
-        const match = window.match(EMAIL_REGEX);
-        if (match) return match[0];
-      }
-    }
-    // Fallback: first email-looking string anywhere in the document.
     for (const line of lines) {
       const match = line.match(EMAIL_REGEX);
-      if (match) return match[0];
+      if (match) {
+        return this.stripLabelPrefix(match[0].trim(), CUSTOMER_EMAIL_LABELS);
+      }
     }
     return undefined;
   }
 
-  /**
-   * Looks for an amount next to a total/due label first (high confidence).
-   * If none of those labels are found, falls back to the largest
-   * currency-formatted number in the document (low confidence — flagged).
-   */
-  private extractAmount(lines: string[]): { value: number; lowConfidence: boolean } | undefined {
+  /** Removes a label word glued directly onto the front of a matched value, e.g. "Emailgordon@x.com" -> "gordon@x.com". */
+  private stripLabelPrefix(value: string, labels: string[]): string {
+    const lower = value.toLowerCase();
+    for (const label of labels) {
+      const compact = label.replace(/\s+/g, '');
+      if (lower.startsWith(compact)) {
+        return value.slice(compact.length);
+      }
+    }
+    return value;
+  }
+
+  private extractAmount(
+    lines: string[],
+  ): { value: number; lowConfidence: boolean } | undefined {
     for (const label of AMOUNT_LABELS) {
       const raw = this.findLabeledValue(lines, [label]);
       const parsed = raw ? this.parseAmount(raw) : undefined;
@@ -186,11 +255,10 @@ export class PdfInvoiceExtractor {
       }
     }
 
-    // Fallback: scan the whole doc for currency-formatted numbers and take the largest.
-    // Rationale: on a typical invoice, the grand total is the largest line-item-shaped number.
     const candidates: number[] = [];
     for (const line of lines) {
-      const matches = line.match(/[$£€₦]?\s?\d{1,3}(?:,\d{3})*(?:\.\d{2})?/g) || [];
+      const matches =
+        line.match(/[$£€₦]?\s?\d{1,3}(?:,\d{3})*(?:\.\d{2})?/g) || [];
       for (const m of matches) {
         const value = this.parseAmount(m);
         if (value !== undefined && value > 0) candidates.push(value);
@@ -200,18 +268,12 @@ export class PdfInvoiceExtractor {
     return { value: Math.max(...candidates), lowConfidence: true };
   }
 
-  /** Strips currency symbols and thousands separators, then parses. */
   private parseAmount(value: string): number | undefined {
     const stripped = value.replace(/[$£€₦,]/g, '').trim();
     const match = stripped.match(/\d+(?:\.\d{1,2})?/);
     return match ? Number(match[0]) : undefined;
   }
 
-  /**
-   * Tries a set of explicit, unambiguous date patterns before ever falling
-   * back to `new Date(string)`. Flags genuinely ambiguous DD/MM vs MM/DD
-   * cases (e.g. "03/04/2026") based on the user's configured date format.
-   */
   private extractDueDate(
     lines: string[],
     dateFormat: string,
@@ -222,21 +284,31 @@ export class PdfInvoiceExtractor {
     return this.parseDate(raw, dateFormat);
   }
 
-  private parseDate(value: string, dateFormat: string): { date: Date; ambiguous: boolean } | undefined {
+  private parseDate(
+    value: string,
+    dateFormat: string,
+  ): { date: Date; ambiguous: boolean } | undefined {
     const text = value.trim();
 
-    // ISO format: 2026-07-13 — unambiguous, always safe.
     const isoMatch = text.match(/(\d{4})-(\d{2})-(\d{2})/);
     if (isoMatch) {
       const [, y, m, d] = isoMatch;
-      return { date: new Date(Number(y), Number(m) - 1, Number(d)), ambiguous: false };
+      return {
+        date: new Date(Number(y), Number(m) - 1, Number(d)),
+        ambiguous: false,
+      };
     }
 
-    // "Month DD, YYYY" or "DD Month YYYY" — unambiguous, month is named.
     const monthNames =
       'jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t|tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?';
-    const namedMonthA = new RegExp(`(${monthNames})\\.?\\s+(\\d{1,2}),?\\s+(\\d{4})`, 'i');
-    const namedMonthB = new RegExp(`(\\d{1,2})\\s+(${monthNames})\\.?,?\\s+(\\d{4})`, 'i');
+    const namedMonthA = new RegExp(
+      `(${monthNames})\\.?\\s+(\\d{1,2}),?\\s+(\\d{4})`,
+      'i',
+    );
+    const namedMonthB = new RegExp(
+      `(\\d{1,2})\\s+(${monthNames})\\.?,?\\s+(\\d{4})`,
+      'i',
+    );
 
     let m = text.match(namedMonthA);
     if (m) {
@@ -249,8 +321,6 @@ export class PdfInvoiceExtractor {
       if (!Number.isNaN(date.getTime())) return { date, ambiguous: false };
     }
 
-    // Numeric slash/dash format: DD/MM/YYYY or MM/DD/YYYY — ambiguous unless
-    // one of the first two numbers is > 12 (which disambiguates it for free).
     const numericMatch = text.match(/(\d{1,2})[/\-](\d{1,2})[/\-](\d{2,4})/);
     if (numericMatch) {
       let [, a, b, y] = numericMatch;
@@ -259,22 +329,17 @@ export class PdfInvoiceExtractor {
       const bNum = Number(b);
 
       if (aNum > 12) {
-        // a must be the day
         return { date: new Date(yearNum, bNum - 1, aNum), ambiguous: false };
       }
       if (bNum > 12) {
-        // b must be the day
         return { date: new Date(yearNum, aNum - 1, bNum), ambiguous: false };
       }
 
-      // Genuinely ambiguous — both readings are valid dates. Defer to the
-      // user's configured format, but flag it so the UI can ask them to confirm.
       const dayFirst = dateFormat.toUpperCase().startsWith('DD');
       const [day, month] = dayFirst ? [aNum, bNum] : [bNum, aNum];
       return { date: new Date(yearNum, month - 1, day), ambiguous: true };
     }
 
-    // Last resort — native parser. Flag as ambiguous since we can't vouch for it.
     const fallback = new Date(text);
     if (!Number.isNaN(fallback.getTime())) {
       return { date: fallback, ambiguous: true };

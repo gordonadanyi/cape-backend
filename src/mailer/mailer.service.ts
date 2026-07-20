@@ -1,54 +1,39 @@
-import { Injectable, Logger } from '@nestjs/common';
-
-export interface SendEmailAttachment {
-  filename: string;
-  content: string;
-}
-
-export interface SendEmailParams {
-  to: string;
-  subject: string;
-  html: string;
-  attachments?: SendEmailAttachment[];
-}
+import { Injectable } from '@nestjs/common';
+import { Resend } from 'resend';
 
 @Injectable()
 export class MailerService {
-  private readonly logger = new Logger(MailerService.name);
-  private readonly apiKey = process.env.RESEND_API_KEY;
-  private readonly fromAddress =
-    process.env.MAIL_FROM_ADDRESS ?? 'onboarding@resend.dev';
+  private resend = new Resend(process.env.RESEND_API_KEY);
 
-  async sendEmail(params: SendEmailParams): Promise<void> {
-    if (!this.apiKey) {
-      throw new Error(
-        'RESEND_API_KEY is not configured. Set it in your envronment before sending email',
-      );
-    }
-
-    const response = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${this.apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        from: this.fromAddress,
-        to: params.to,
-        subject: params.subject,
-        html: params.html,
-        attachments: params.attachments,
-      }),
+  async sendInvoiceEmail(data: {
+    to: string;
+    subject: string;
+    html: string;
+    attachments?: {
+      filename: string;
+      content: string;
+    }[];
+  }) {
+    const response = await this.resend.emails.send({
+      from: process.env.EMAIL_FROM!,
+      to: data.to,
+      subject: data.subject,
+      html: data.html,
+      attachments: data.attachments,
     });
 
-    if (!response.ok) {
-      const errorBody = await response.text().catch(() => '');
-      this.logger.error(
-        `Resend API error (${response.status}) sending to ${params.to}: ${errorBody}`,
-      );
+    // The Resend SDK does NOT throw on API-level failures (bad API key,
+    // unverified sending domain, invalid recipient, etc) — it resolves
+    // successfully with { data: null, error: {...} }. If we don't check
+    // this ourselves, every caller up the chain (sendInvoice, the
+    // scheduler, the reminder service) thinks the send succeeded even
+    // when Resend silently rejected it.
+    if (response.error) {
       throw new Error(
-        `Failed to send Email (${response.status}): ${errorBody || response.statusText}`,
+        `Resend error (${response.error.name}): ${response.error.message}`,
       );
     }
+
+    return response;
   }
 }

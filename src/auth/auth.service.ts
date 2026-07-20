@@ -35,7 +35,11 @@ export class AuthService {
       password: passwordHash,
     });
 
-    return user;
+    const accesstoken = await this.generateToken(user);
+    return {
+      message: 'Signup Successful',
+      accesstoken,
+    };
   }
 
   async login(email: string, password: string) {
@@ -80,7 +84,7 @@ export class AuthService {
     await user.save();
 
     return {
-      message: "password changed successfully",
+      message: 'password changed successfully',
     };
   }
 }

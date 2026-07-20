@@ -12,6 +12,9 @@ import { Invoice } from '../schema/invoice.schema';
 import pdfParse from 'pdf-parse';
 import { Response } from 'express';
 import { PdfInvoiceExtractor } from 'src/utils/pdf-extractor.util';
+import { MailerService } from 'src/mailer/mailer.service';
+import { buildInvoiceEmailHtml } from 'src/utils/invoice-email.util';
+import { Settings } from 'src/schema/settings.schema';
 
 @Injectable()
 export class InvoiceService {
@@ -19,6 +22,8 @@ export class InvoiceService {
 
   constructor(
     @InjectModel(Invoice.name) private readonly invoiceModel: Model<Invoice>,
+    @InjectModel(Settings.name) private readonly settingsModel: Model<Settings>,
+    private readonly mailerService: MailerService,
   ) {}
 
   /** Throws a clean 400 instead of letting an invalid id crash into an unhandled Mongoose CastError. */
@@ -46,7 +51,24 @@ export class InvoiceService {
     // TODO: once Settings is easily reachable here, pass the user's actual
     // dateFormat preference instead of the schema default, so ambiguous
     // numeric dates (e.g. 03/04/2026) are read the way this user expects.
-    const parsed = await pdfParse(file.buffer);
+    let parsed: { text?: string };
+    try {
+      parsed = await pdfParse(file.buffer);
+    } catch (err) {
+      // pdf-parse throws things like "bad XRef entry" when the PDF's
+      // internal structure is corrupted/malformed — not something we can
+      // recover from, but the user deserves a clear reason instead of an
+      // unhandled 500.
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      console.error(
+        `Failed to parse uploaded PDF "${file.originalname}":`,
+        err,
+      );
+      throw new BadRequestException(
+        `This PDF couldn't be read (${message}). It may be corrupted — try re-exporting or re-saving it and upload again.`,
+      );
+    }
+
     const { data: extracted, warnings } = this.extractor.extract(
       parsed.text || '',
       'DD/MM/YYYY',
@@ -104,8 +126,80 @@ export class InvoiceService {
     );
   }
 
+  async sendInvoice(userId: Types.ObjectId, id: string) {
+    const invoice = await this.invoiceModel.findOne({
+      _id: id,
+      userId,
+    });
+
+    if (!invoice) {
+      throw new NotFoundException();
+    }
+
+    if (invoice.isSent) {
+      throw new ConflictException('This invoice has already been sent.');
+    }
+
+    if (!invoice.customerEmail) {
+      throw new BadRequestException(
+        'This invoice has no customer email on file. Add one on the review screen before sending.',
+      );
+    }
+
+    const settings = await this.settingsModel.findOne({
+      userId: invoice.userId,
+    });
+    try {
+      await this.mailerService.sendInvoiceEmail({
+        to: invoice.customerEmail,
+        subject: invoice.subjectLine || 'Invoice',
+        html: buildInvoiceEmailHtml(invoice, settings),
+        attachments: [
+          {
+            filename: invoice.originalName,
+            content: invoice.file.toString('base64'),
+          },
+        ],
+      });
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : 'Unknown error sending email';
+
+      await this.invoiceModel.updateOne(
+        { _id: invoice._id },
+        { $inc: { sendAttempts: 1 }, lastSendError: message },
+      );
+
+      throw new BadRequestException(`Failed to send this invoice: ${message}`);
+    }
+
+    await this.invoiceModel.updateOne(
+      { _id: invoice._id },
+      { isSent: true, sentAt: new Date(), lastSendError: null },
+    );
+
+    return {
+      message: 'Invoice sent successfully.',
+    };
+  }
+
   async findAll(userId: Types.ObjectId): Promise<Invoice[]> {
     return this.invoiceModel.find({ userId }).sort({ createdAt: -1 }).exec();
+  }
+
+  async findOne(userId: Types.ObjectId, id: string): Promise<Invoice> {
+    this.assertValidId(id);
+
+    const invoice = await this.invoiceModel
+      .findOne({ _id: id, userId })
+      .select('-file -attachments.file')
+      .exec();
+
+    if (!invoice) {
+      throw new NotFoundException(`Invoice with id ${id} not found`);
+    }
+
+    return invoice;
   }
 
   async getInvoiceFile(userId: Types.ObjectId, id: string, res: Response) {

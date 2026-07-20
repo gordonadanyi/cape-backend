@@ -57,6 +57,18 @@ export class InvoiceController {
     );
   }
 
+  @Post(':id/send')
+  sendInvoice(@Req() req: AuthRequest, @Param('id') id: string) {
+    return this.invoiceService.sendInvoice(
+      new Types.ObjectId(req.user.userId),
+      id,
+    );
+  }
+
+  // @Post('schedule')
+
+  // @Post('reminder')
+
   @Get('all')
   findAll(@Req() req: AuthRequest) {
     return this.invoiceService.findAll(new Types.ObjectId(req.user.userId));
@@ -66,6 +78,11 @@ export class InvoiceController {
   // findOne(@Param('id') id: string) {
   //   return this.invoiceService.findOne(id);
   // }
+
+  @Get(':id/details')
+  findOne(@Req() req: AuthRequest, @Param('id') id: string) {
+    return this.invoiceService.findOne(new Types.ObjectId(req.user.userId), id);
+  }
 
   @Get(':id')
   getInvoiceFile(
