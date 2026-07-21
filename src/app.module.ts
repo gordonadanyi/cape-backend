@@ -10,9 +10,19 @@ import { MailerService } from './mailer/mailer.service';
 import { MailerController } from './mailer/mailer.controller';
 import { MailerModule } from './mailer/mailer.module';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { BullModule } from '@nestjs/bullmq';
 
 @Module({
   imports: [
+    BullModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => ({
+        connection: {
+          host: config.get<string>('REDIS_HOST') || 'localhost',
+          port: Number(config.get<string>('REDIS_PORT')) || 6379,
+        },
+      }),
+    }),
     ConfigModule.forRoot({ isGlobal: true }),
     MongooseModule.forRootAsync({
       inject: [ConfigService],

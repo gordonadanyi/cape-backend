@@ -15,6 +15,12 @@ import { PdfInvoiceExtractor } from 'src/utils/pdf-extractor.util';
 import { MailerService } from 'src/mailer/mailer.service';
 import { buildInvoiceEmailHtml } from 'src/utils/invoice-email.util';
 import { Settings } from 'src/schema/settings.schema';
+import {
+  InvoiceSendJobData,
+  INVOICE_SENDING_QUEUE,
+} from 'src/types/invoice-send-job.types';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
 
 @Injectable()
 export class InvoiceService {
@@ -24,6 +30,8 @@ export class InvoiceService {
     @InjectModel(Invoice.name) private readonly invoiceModel: Model<Invoice>,
     @InjectModel(Settings.name) private readonly settingsModel: Model<Settings>,
     private readonly mailerService: MailerService,
+    @InjectQueue(INVOICE_SENDING_QUEUE)
+    private readonly invoiceQueue: Queue<InvoiceSendJobData>,
   ) {}
 
   /** Throws a clean 400 instead of letting an invalid id crash into an unhandled Mongoose CastError. */

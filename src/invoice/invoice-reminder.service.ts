@@ -10,6 +10,7 @@ import { ConfigService } from '@nestjs/config';
 import { Invoice } from '../schema/invoice.schema';
 import { Settings } from '../schema/settings.schema';
 import { MailerService } from 'src/mailer/mailer.service';
+import { buildReminderEmailHtml } from 'src/utils/reminder-email.utils';
 
 const BATCH_SIZE = 50;
 
@@ -74,13 +75,8 @@ export class InvoiceReminderService implements OnModuleInit, OnModuleDestroy {
         .find({
           isSent: true,
           status: { $nin: ['paid', 'cancelled'] },
-          dueDate: { $exists: true, $ne: null },
-          customerEmail: { $exists: true, $ne: null },
-          $or: [
-            { beforeReminderSentAt: null },
-            { onDueReminderSentAt: null },
-            { afterReminderSentAt: null },
-          ],
+          dueDate: { $exists: true },
+          customerEmail: { $exists: true },
         })
         .limit(BATCH_SIZE)
         .exec();
@@ -121,13 +117,11 @@ export class InvoiceReminderService implements OnModuleInit, OnModuleDestroy {
     cache: Map<string, Settings | null>,
   ): Promise<void> {
     const settings = await this.getSettingsForUser(invoice.userId, cache);
-    const reminders = settings?.reminders ?? {
-      beforeDueDate: true,
-      beforeDays: 3,
-      onDueDate: true,
-      afterDueDate: true,
-      afterDays: 3,
-    };
+    const reminders = settings?.reminders;
+
+    const beforeDays = reminders?.beforeDays ?? 3;
+    const afterDays = reminders?.afterDays ?? 3;
+
     const timeZone = settings?.timeZone || 'Africa/Lagos';
     const dueDate = invoice.dueDate as Date;
     const now = new Date();
@@ -136,14 +130,18 @@ export class InvoiceReminderService implements OnModuleInit, OnModuleDestroy {
       [
         {
           type: 'before',
-          enabled: reminders.beforeDueDate,
-          targetDate: this.addDays(dueDate, -reminders.beforeDays),
+          enabled: reminders?.beforeDueDate ?? true,
+          targetDate: this.addDays(dueDate, -beforeDays),
         },
-        { type: 'onDue', enabled: reminders.onDueDate, targetDate: dueDate },
+        {
+          type: 'onDue',
+          enabled: reminders?.onDueDate ?? true,
+          targetDate: dueDate,
+        },
         {
           type: 'after',
-          enabled: reminders.afterDueDate,
-          targetDate: this.addDays(dueDate, reminders.afterDays),
+          enabled: reminders?.afterDueDate ?? true,
+          targetDate: this.addDays(dueDate, afterDays),
         },
       ];
 
@@ -163,19 +161,16 @@ export class InvoiceReminderService implements OnModuleInit, OnModuleDestroy {
   ): Promise<void> {
     try {
       await this.mailerService.sendInvoiceEmail({
-    to: invoice.customerEmail!,
-    subject: this.buildSubject(type, invoice, settings),
-    html: this.buildHtml(type, invoice, settings),
-
-    attachments: invoice.file
-      ? [
+        to: invoice.customerEmail!,
+        subject: this.buildSubject(type, invoice, settings),
+        html: buildReminderEmailHtml(invoice, settings, type),
+        attachments: [
           {
-            filename: invoice.originalName || "invoice.pdf",
-            content: invoice.file.toString("base64"),
+            filename: invoice.originalName || 'invoice.pdf',
+            content: invoice.file.toString('base64'),
           },
-        ]
-      : [],
-});
+        ],
+      });
 
       await this.invoiceModel.updateOne(
         { _id: invoice._id },
@@ -200,65 +195,27 @@ export class InvoiceReminderService implements OnModuleInit, OnModuleDestroy {
     invoice: Invoice,
     settings: Settings | null,
   ): string {
-    const base = settings?.email?.defaultSubject || 'Invoice Reminder';
-    const label =
-      type === 'before'
-        ? 'Upcoming'
-        : type === 'after'
-          ? 'Overdue'
-          : 'Due Today';
-    return `${label}: ${base}${invoice.invoiceNumber ? ` #${invoice.invoiceNumber}` : ''}`;
-  }
+    const reminder = settings?.reminders;
 
-  private buildHtml(
-    type: ReminderType,
-    invoice: Invoice,
-    settings: Settings | null,
-  ): string {
-    const companyName =
-      settings?.branding?.companyName || settings?.profile?.companyName || '';
-    const template =
-      settings?.email?.defaultMessage ||
-      'Hello {{customerName}},\n\nThis is a reminder about your invoice.';
-    const signature = settings?.email?.signature || '';
+    let subject = 'Invoice Reminder';
 
-    const message = this.applyTemplate(
-      template,
-      invoice.customerName,
-      companyName,
-    );
-    const signatureText = this.applyTemplate(
-      signature,
-      invoice.customerName,
-      companyName,
-    );
+    switch (type) {
+      case 'before':
+        subject = reminder?.beforeSubject || 'Upcoming Invoice Reminder';
+        break;
 
-    const amount =
-      invoice.amountDue !== undefined
-        ? `<p><strong>Amount due:</strong> ${invoice.amountDue}</p>`
-        : '';
-    const due = invoice.dueDate
-      ? `<p><strong>Due date:</strong> ${invoice.dueDate.toDateString()}</p>`
-      : '';
+      case 'onDue':
+        subject = reminder?.dueTodaySubject || 'Invoice Due Today';
+        break;
 
-    return `
-      <div style="font-family: sans-serif; line-height: 1.5;">
-        <p>${this.escapeHtml(message).replace(/\n/g, '<br/>')}</p>
-        ${amount}
-        ${due}
-        <p>${this.escapeHtml(signatureText).replace(/\n/g, '<br/>')}</p>
-      </div>
-    `.trim();
-  }
+      case 'after':
+        subject = reminder?.overdueSubject || 'Invoice Overdue';
+        break;
+    }
 
-  private applyTemplate(
-    template: string,
-    customerName: string | undefined,
-    companyName: string,
-  ): string {
-    return template
-      .replace(/{{\s*customerName\s*}}/g, customerName || 'there')
-      .replace(/{{\s*companyName\s*}}/g, companyName);
+    return invoice.invoiceNumber
+      ? `${subject} #${invoice.invoiceNumber}`
+      : subject;
   }
 
   private addDays(date: Date, days: number): Date {
@@ -276,14 +233,5 @@ export class InvoiceReminderService implements OnModuleInit, OnModuleDestroy {
       day: '2-digit',
     });
     return fmt.format(a) === fmt.format(b);
-  }
-
-  private escapeHtml(text: string): string {
-    return text
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#39;');
   }
 }
