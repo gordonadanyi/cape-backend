@@ -134,14 +134,14 @@ function applyTemplate(
 ): string {
   return template
     .replace(/{{\s*customerName\s*}}/g, invoice.customerName ?? 'Customer')
-    .replace(/{{\s*companyName}\s*}/g, companyName ?? '')
+    .replace(/{{\s*companyName}\s*}}/g, companyName ?? '')
     .replace(/{{\s*invoiceNumber\s*}}/g, invoice.invoiceNumber ?? '')
-    .replace(/{{\s*amountDue}\s*}/g, invoice.amountDue?.toLocaleString() ?? '')
+    .replace(/{{\s*amountDue}\s*}}/g, invoice.amountDue?.toLocaleString() ?? '')
     .replace(
-      /{{dueDate}}/g,
+      /{{\s*dueDate\s*}}/g,
       invoice.dueDate ? invoice.dueDate.toLocaleDateString('en-GB') : '',
     )
-    .replace(/{{days}}/g, reminderDays?.toString() ?? '');
+    .replace(/{{\s*days\s*}}/g, reminderDays?.toString() ?? '');
 }
 
 function escapeHtml(text: string): string {

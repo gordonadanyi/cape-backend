@@ -75,8 +75,8 @@ export class InvoiceReminderService implements OnModuleInit, OnModuleDestroy {
         .find({
           isSent: true,
           status: { $nin: ['paid', 'cancelled'] },
-          dueDate: { $exists: true },
-          customerEmail: { $exists: true },
+          dueDate: { $exists: true, $ne: null },
+          customerEmail: { $exists: true, $ne: null },
         })
         .limit(BATCH_SIZE)
         .exec();
