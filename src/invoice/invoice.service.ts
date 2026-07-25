@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
@@ -21,10 +22,13 @@ import {
 } from 'src/types/invoice-send-job.types';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
+import { generateReceiptPdf } from 'src/utils/receipt-pdf.util';
+import { PaymentService } from 'src/payment/payment.service';
 
 @Injectable()
 export class InvoiceService {
   private readonly extractor = new PdfInvoiceExtractor();
+  private readonly logger = new Logger(InvoiceService.name);
 
   constructor(
     @InjectModel(Invoice.name) private readonly invoiceModel: Model<Invoice>,
@@ -32,6 +36,7 @@ export class InvoiceService {
     private readonly mailerService: MailerService,
     @InjectQueue(INVOICE_SENDING_QUEUE)
     private readonly invoiceQueue: Queue<InvoiceSendJobData>,
+    private readonly paymentService: PaymentService,
   ) {}
 
   /** Throws a clean 400 instead of letting an invalid id crash into an unhandled Mongoose CastError. */
@@ -157,6 +162,26 @@ export class InvoiceService {
     const settings = await this.settingsModel.findOne({
       userId: invoice.userId,
     });
+
+    // Generate the Paystack payment link before building the email, so
+    // the "Pay Now" button has something to point to. A failure here
+    // (e.g. missing amountDue, Paystack API hiccup) shouldn't block the
+    // invoice from being sent at all — better to send without a pay
+    // button than to not send the invoice.
+    if (invoice.amountDue) {
+      try {
+        const payment = await this.paymentService.initializePayment(
+          invoice._id.toString(),
+        );
+        invoice.paymentAuthorizationUrl = payment.authorization_url;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Unknown error';
+        this.logger.warn(
+          `Could not generate payment link for invoice ${invoice._id}: ${message}`,
+        );
+      }
+    }
+
     try {
       await this.mailerService.sendInvoiceEmail({
         to: invoice.customerEmail,
@@ -224,6 +249,36 @@ export class InvoiceService {
     });
 
     return res.send(invoice.file);
+  }
+
+  /**
+   * Regenerates the receipt PDF fresh on every request rather than storing
+   * it — a paid invoice's facts (amount, date, reference) don't change, so
+   * this always produces the identical PDF without needing extra storage.
+   */
+  async getReceiptFile(userId: Types.ObjectId, id: string, res: Response) {
+    this.assertValidId(id);
+    const invoice = await this.invoiceModel.findOne({ _id: id, userId });
+
+    if (!invoice) {
+      throw new NotFoundException('Invoice not found');
+    }
+
+    if (invoice.status !== 'paid') {
+      throw new BadRequestException(
+        'No receipt available — this invoice has not been paid yet.',
+      );
+    }
+
+    const settings = await this.settingsModel.findOne({ userId });
+    const pdfBuffer = await generateReceiptPdf(invoice, settings);
+
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename="receipt-${invoice.invoiceNumber || invoice._id}.pdf"`,
+    });
+
+    return res.send(pdfBuffer);
   }
 
   // async findOne(id: string): Promise<Invoice> {

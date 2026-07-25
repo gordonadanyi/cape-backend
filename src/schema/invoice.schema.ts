@@ -102,6 +102,36 @@ export class Invoice {
 
   @Prop()
   afterReminderSentAt?: Date;
+
+  @Prop()
+  paymentReference?: string;
+
+  @Prop()
+  paymentAuthorizationUrl?: string;
+
+  @Prop()
+  transactionReference?: string;
+
+  @Prop()
+  paymentTransactionId?: string;
+
+  @Prop()
+  paymentMethod?: string;
+
+  @Prop()
+  paymentChannel?: string;
+
+  @Prop()
+  paidAt?: Date;
+
+  @Prop()
+  amountPaid?: number;
+
+  @Prop()
+  receiptSent?: boolean;
+
+  @Prop()
+  receiptNumber?: string;
 }
 
 export const InvoiceSchema = SchemaFactory.createForClass(Invoice);

@@ -9,6 +9,7 @@ import { Invoice } from '../schema/invoice.schema';
 export function buildInvoiceEmailHtml(
   invoice: Invoice,
   settings: Settings | null,
+  paymentUrl?: string,
 ): string {
   const message = escapeHtml(
     invoice.personalMessage || 'Please find your invoice attached.',
@@ -27,6 +28,18 @@ export function buildInvoiceEmailHtml(
           year: 'numeric',
         },
       )}</p>`
+    : '';
+
+  const payButton = invoice.paymentAuthorizationUrl
+    ? `
+<div style="margin:24px 0;">
+  <a href="${invoice.paymentAuthorizationUrl}"
+     style="background:#4B672D;color:#fff;padding:14px 28px;border-radius:999px;
+            text-decoration:none;font-weight:600;display:inline-block;">
+    Pay Now
+  </a>
+</div>
+`
     : '';
 
   const branding = settings?.branding;
@@ -66,6 +79,7 @@ ${
       <p>${message}</p>
       ${amount}
       ${due}
+      ${payButton}
       ${footer}
     </div>
   `.trim();

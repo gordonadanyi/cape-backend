@@ -10,6 +10,7 @@ import { Invoice } from '../schema/invoice.schema';
 import { MailerService } from 'src/mailer/mailer.service';
 import { buildInvoiceEmailHtml } from 'src/utils/invoice-email.util';
 import { Settings } from 'src/schema/settings.schema';
+import { PaymentService } from 'src/payment/payment.service';
 
 const POLL_INTERVAL_MS = Number(process.env.INVOICE_POLL_INTERVAL_MS) || 60_000;
 const BATCH_SIZE = 20;
@@ -46,6 +47,7 @@ export class InvoiceSchedulerService implements OnModuleInit, OnModuleDestroy {
     @InjectModel(Invoice.name) private readonly invoiceModel: Model<Invoice>,
     @InjectModel(Settings.name) private readonly settingsModel: Model<Settings>,
     private readonly mailerService: MailerService,
+    private readonly paymentService: PaymentService,
   ) {}
 
   onModuleInit() {
@@ -126,10 +128,19 @@ export class InvoiceSchedulerService implements OnModuleInit, OnModuleDestroy {
       const settings = await this.settingsModel.findOne({
         userId: invoice.userId,
       });
+
+      const payment = await this.paymentService.initializePayment(
+        invoice._id.toString(),
+      );
+
       await this.mailerService.sendInvoiceEmail({
         to: invoice.customerEmail,
         subject: invoice.subjectLine || 'Invoice',
-        html: buildInvoiceEmailHtml(invoice, settings),
+        html: buildInvoiceEmailHtml(
+          invoice,
+          settings,
+          payment.authorization_url,
+        ),
         attachments,
       });
 

@@ -11,6 +11,7 @@ import {
   InvoiceSendJobData,
   INVOICE_SENDING_QUEUE,
 } from 'src/types/invoice-send-job.types';
+import { PaymentService } from 'src/payment/payment.service';
 
 /**
  * The Worker for the 'invoice-sending' queue — this is what BullMQ calls
@@ -29,6 +30,7 @@ export class InvoiceSendingProcessor extends WorkerHost {
     @InjectModel(Invoice.name) private readonly invoiceModel: Model<Invoice>,
     @InjectModel(Settings.name) private readonly settingsModel: Model<Settings>,
     private readonly mailerService: MailerService,
+    private readonly paymentService: PaymentService,
   ) {
     super();
   }
@@ -84,6 +86,24 @@ export class InvoiceSendingProcessor extends WorkerHost {
       const settings = await this.settingsModel.findOne({
         userId: invoice.userId,
       });
+
+      // Same as the manual "send now" path — generate the payment link
+      // right before building the email. A failure here shouldn't fail
+      // the whole scheduled send; better to go out without a pay button
+      // than not go out at all.
+      if (invoice.amountDue) {
+        try {
+          const payment = await this.paymentService.initializePayment(
+            invoice._id.toString(),
+          );
+          invoice.paymentAuthorizationUrl = payment.authorization_url;
+        } catch (err) {
+          const message = err instanceof Error ? err.message : 'Unknown error';
+          this.logger.warn(
+            `Could not generate payment link for invoice ${invoice._id}: ${message}`,
+          );
+        }
+      }
 
       await this.mailerService.sendInvoiceEmail({
         to: invoice.customerEmail,

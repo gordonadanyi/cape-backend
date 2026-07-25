@@ -10,6 +10,7 @@ import { Settings, SettingsSchema } from 'src/schema/settings.schema';
 import { BullModule } from '@nestjs/bullmq';
 import { InvoiceSendingProcessor } from './invoice-sending.processor';
 import { INVOICE_SENDING_QUEUE } from 'src/types/invoice-send-job.types';
+import { PaymentModule } from 'src/payment/payment.module';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { INVOICE_SENDING_QUEUE } from 'src/types/invoice-send-job.types';
       { name: Settings.name, schema: SettingsSchema },
     ]),
     MailerModule,
+    PaymentModule,
   ],
   controllers: [InvoiceController],
   providers: [

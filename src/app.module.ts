@@ -11,6 +11,7 @@ import { MailerController } from './mailer/mailer.controller';
 import { MailerModule } from './mailer/mailer.module';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { BullModule } from '@nestjs/bullmq';
+import { PaymentModule } from './payment/payment.module';
 
 @Module({
   imports: [
@@ -38,6 +39,7 @@ import { BullModule } from '@nestjs/bullmq';
     InvoiceModule,
     SettingsModule,
     MailerModule,
+    PaymentModule,
   ],
   controllers: [AppController, MailerController],
   providers: [AppService, MailerService],

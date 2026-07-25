@@ -84,6 +84,19 @@ export class InvoiceController {
     return this.invoiceService.findOne(new Types.ObjectId(req.user.userId), id);
   }
 
+  @Get(':id/receipt')
+  getReceiptFile(
+    @Req() req: AuthRequest,
+    @Param('id') id: string,
+    @Res() res: Response,
+  ) {
+    return this.invoiceService.getReceiptFile(
+      new Types.ObjectId(req.user.userId),
+      id,
+      res,
+    );
+  }
+
   @Get(':id')
   getInvoiceFile(
     @Req() req: AuthRequest,
