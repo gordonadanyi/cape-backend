@@ -4,7 +4,7 @@ import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
 import { InvoiceModule } from './invoice/invoice.module';
 import { MongooseModule } from '@nestjs/mongoose';
-import { ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { SettingsModule } from './settings/settings.module';
 import { MailerService } from './mailer/mailer.service';
 import { MailerController } from './mailer/mailer.controller';
@@ -12,6 +12,7 @@ import { MailerModule } from './mailer/mailer.module';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { BullModule } from '@nestjs/bullmq';
 import { PaymentModule } from './payment/payment.module';
+import { APP_GUARD } from '@nestjs/core';
 
 @Module({
   imports: [
@@ -42,6 +43,13 @@ import { PaymentModule } from './payment/payment.module';
     PaymentModule,
   ],
   controllers: [AppController, MailerController],
-  providers: [AppService, MailerService],
+  providers: [
+    AppService,
+    MailerService,
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
+    },
+  ],
 })
 export class AppModule {}

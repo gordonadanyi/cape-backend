@@ -354,7 +354,52 @@ export class InvoiceService {
       throw new NotFoundException(`Invoice with id ${id} not found`);
     }
 
+    // Only touch the queue when this request actually set/changed sendAt —
+    // an unrelated draft edit (e.g. just fixing customerName) shouldn't
+    // re-schedule anything.
+    if (draft.sendAt !== undefined) {
+      await this.scheduleSendJob(updatedInvoice);
+    }
+
     return updatedInvoice;
+  }
+
+  /**
+   * Adds (or replaces) the BullMQ job that will actually send this invoice
+   * at its sendAt time. Uses the invoice's own _id as the job's ID, so
+   * calling this again for the same invoice (e.g. the user picks a new
+   * send time) cleanly replaces the old job instead of leaving two jobs
+   * racing to send the same invoice.
+   */
+  private async scheduleSendJob(
+    invoice: Invoice & { _id: any },
+  ): Promise<void> {
+    const jobId = invoice._id.toString();
+
+    const existingJob = await this.invoiceQueue.getJob(jobId);
+    if (existingJob) {
+      await existingJob.remove();
+    }
+
+    const sendAt = invoice.sendAt as Date;
+    const delay = Math.max(0, sendAt.getTime() - Date.now());
+
+    await this.invoiceQueue.add(
+      'send-invoice',
+      { invoiceId: jobId },
+      {
+        jobId,
+        delay,
+        attempts: 5,
+        backoff: { type: 'exponential', delay: 60_000 },
+        removeOnComplete: true,
+        removeOnFail: false,
+      },
+    );
+
+    this.logger.log(
+      `Scheduled send job for invoice ${jobId}, firing in ${delay}ms`,
+    );
   }
 
   /**
@@ -427,6 +472,11 @@ export class InvoiceService {
 
     if (!deletedInvoice) {
       throw new NotFoundException('Invoice not found');
+    }
+
+    const pendingJob = await this.invoiceQueue.getJob(id);
+    if (pendingJob) {
+      await pendingJob.remove();
     }
 
     return deletedInvoice;

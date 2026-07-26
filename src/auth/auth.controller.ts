@@ -5,7 +5,9 @@ import { JwtAuthGuard } from './jwt-auth.guard';
 import { Types } from 'mongoose';
 import { ChangePasswordDto } from 'src/dto/change-password.dto';
 import type { AuthRequest } from './auth-request';
+import { ApiTags, ApiResponse, ApiOkResponse, ApiOperation, ApiCreatedResponse, ApiBadRequestResponse } from '@nestjs/swagger';
 
+@ApiTags('auth')
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}

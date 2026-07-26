@@ -11,6 +11,7 @@ import { Invoice } from '../schema/invoice.schema';
 import { Settings } from '../schema/settings.schema';
 import { MailerService } from 'src/mailer/mailer.service';
 import { buildReminderEmailHtml } from 'src/utils/reminder-email.utils';
+import { PaymentService } from 'src/payment/payment.service';
 
 const BATCH_SIZE = 50;
 
@@ -44,6 +45,7 @@ export class InvoiceReminderService implements OnModuleInit, OnModuleDestroy {
     private readonly settingsModel: Model<Settings>,
     private readonly mailerService: MailerService,
     private readonly configService: ConfigService,
+    private readonly paymentService: PaymentService,
   ) {
     this.pollIntervalMs =
       Number(this.configService.get<string>('REMINDER_POLL_INTERVAL_MS')) ||
@@ -159,6 +161,24 @@ export class InvoiceReminderService implements OnModuleInit, OnModuleDestroy {
     type: ReminderType,
     settings: Settings | null,
   ): Promise<void> {
+    // Same pattern as the initial send and the BullMQ worker — regenerate
+    // the payment link fresh right before building the email. A failure
+    // here shouldn't block the reminder from going out; better to send
+    // without a pay button than to skip the reminder entirely.
+    if (invoice.amountDue && invoice.status !== 'paid') {
+      try {
+        const payment = await this.paymentService.initializePayment(
+          invoice._id.toString(),
+        );
+        invoice.paymentAuthorizationUrl = payment.authorization_url;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Unknown error';
+        this.logger.warn(
+          `Could not generate payment link for invoice ${invoice._id} reminder: ${message}`,
+        );
+      }
+    }
+
     try {
       await this.mailerService.sendInvoiceEmail({
         to: invoice.customerEmail!,

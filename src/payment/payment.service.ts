@@ -155,26 +155,99 @@ export class PaymentService {
       return;
     }
 
+    await this.finalizePaidInvoice(reference, event.data);
+  }
+
+  /**
+   * Looks up the invoice for a payment reference and returns its current
+   * status. This backs the customer-facing success page: on localhost (or
+   * any environment Paystack's servers can't reach) the webhook never
+   * fires, so instead of trusting the redirect alone, we call Paystack's
+   * own verify endpoint here and — if it confirms the charge — finalize
+   * the invoice right on this call. If a webhook does arrive later (or
+   * already ran), this is a safe no-op read.
+   */
+  async verifyPayment(reference: string) {
+    const invoice = await this.invoiceModel.findOne({
+      paymentReference: reference,
+    });
+
+    if (!invoice) {
+      throw new NotFoundException('No invoice found for this reference');
+    }
+
+    if (invoice.status === 'paid') {
+      return this.toVerifyResponse(invoice, 'paid');
+    }
+
+    const response = await this.paystack.get(
+      `/transaction/verify/${encodeURIComponent(reference)}`,
+    );
+
+    const paystackStatus: string | undefined = response.data?.data?.status;
+
+    if (paystackStatus === 'success') {
+      const updated = await this.finalizePaidInvoice(
+        reference,
+        response.data.data,
+      );
+      return this.toVerifyResponse(updated ?? invoice, 'paid');
+    }
+
+    if (paystackStatus === 'failed' || paystackStatus === 'abandoned') {
+      return this.toVerifyResponse(invoice, 'failed');
+    }
+
+    return this.toVerifyResponse(invoice, 'pending');
+  }
+
+  private toVerifyResponse(
+    invoice: Invoice & { _id: any },
+    status: 'paid' | 'failed' | 'pending',
+  ) {
+    return {
+      status,
+      invoiceId: String(invoice._id),
+      invoiceNumber: invoice.invoiceNumber,
+      customerName: invoice.customerName,
+      amountPaid: invoice.amountPaid,
+      amountDue: invoice.amountDue,
+      paidAt: invoice.paidAt,
+    };
+  }
+
+  /**
+   * Idempotently marks an invoice paid and sends the receipt. Shared by
+   * both the webhook handler and verifyPayment so a customer landing on
+   * the success page before (or without) a webhook still gets an accurate,
+   * finalized result — and whichever path runs, if a webhook ever does
+   * also arrive, is a safe no-op.
+   */
+  private async finalizePaidInvoice(
+    reference: string,
+    data: { amount?: number } | undefined,
+  ) {
     const invoice = await this.invoiceModel.findOne({
       paymentReference: reference,
     });
     if (!invoice) {
       this.logger.warn(`No invoice found for payment reference ${reference}`);
-      return;
+      return null;
     }
 
-    // Idempotency guard — Paystack can and does retry webhook delivery.
-    // Without this, a retried webhook would re-send the receipt email.
+    // Idempotency guard — Paystack can and does retry webhook delivery,
+    // and the success-page verify call can race a webhook too. Without
+    // this, either path could re-send the receipt email.
     if (invoice.status === 'paid') {
       this.logger.debug(
         `Invoice ${invoice._id} already marked paid, skipping.`,
       );
-      return;
+      return invoice;
     }
 
     invoice.status = 'paid';
     invoice.paidAt = new Date();
-    invoice.amountPaid = (event.data.amount ?? 0) / 100; // Paystack sends kobo
+    invoice.amountPaid = (data?.amount ?? 0) / 100; // Paystack sends kobo
     await invoice.save();
 
     this.logger.log(
@@ -182,6 +255,8 @@ export class PaymentService {
     );
 
     await this.sendReceipt(invoice);
+
+    return invoice;
   }
 
   private async sendReceipt(invoice: Invoice & { _id: any }): Promise<void> {

@@ -63,6 +63,18 @@ Kindly make payment as soon as possible.`;
     companyName,
   );
 
+  const payButton = invoice.paymentAuthorizationUrl
+    ? `
+<div style="margin:24px 0;">
+  <a href="${invoice.paymentAuthorizationUrl}"
+     style="background:#4B672D;color:#fff;padding:14px 28px;border-radius:999px;
+            text-decoration:none;font-weight:600;display:inline-block;">
+    Pay Now
+  </a>
+</div>
+`
+    : '';
+
   const branding = settings?.branding;
 
   const amount =
@@ -118,6 +130,8 @@ ${amount}
 
 ${due}
 
+${payButton}
+
 <p>${escapeHtml(signature).replace(/\n/g, '<br/>')}</p>
 
 ${footer}
@@ -134,9 +148,9 @@ function applyTemplate(
 ): string {
   return template
     .replace(/{{\s*customerName\s*}}/g, invoice.customerName ?? 'Customer')
-    .replace(/{{\s*companyName}\s*}}/g, companyName ?? '')
+    .replace(/{{\s*companyName\s*}}/g, companyName ?? '')
     .replace(/{{\s*invoiceNumber\s*}}/g, invoice.invoiceNumber ?? '')
-    .replace(/{{\s*amountDue}\s*}}/g, invoice.amountDue?.toLocaleString() ?? '')
+    .replace(/{{\s*amountDue\s*}}/g, invoice.amountDue?.toLocaleString() ?? '')
     .replace(
       /{{\s*dueDate\s*}}/g,
       invoice.dueDate ? invoice.dueDate.toLocaleDateString('en-GB') : '',

@@ -1,7 +1,8 @@
-import { Controller, Headers, Param, Post, Req } from '@nestjs/common';
+import { Controller, Get, Headers, Param, Post, Req } from '@nestjs/common';
 import type { RawBodyRequest } from '@nestjs/common';
 import type { Request } from 'express';
 import { PaymentService } from './payment.service';
+import { verify } from 'crypto';
 
 @Controller('payments')
 export class PaymentController {
@@ -28,5 +29,10 @@ export class PaymentController {
     // over the exact bytes Paystack sent, not the parsed/re-serialized body.
     await this.paymentService.handleWebhook(req.rawBody as Buffer, signature);
     return { received: true };
+  }
+
+  @Get('verify/:reference')
+  async verify(@Param('reference') reference: string) {
+    return this.paymentService.verifyPayment(reference);
   }
 }
