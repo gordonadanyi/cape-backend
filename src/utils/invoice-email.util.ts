@@ -34,7 +34,7 @@ export function buildInvoiceEmailHtml(
     ? `
 <div style="margin:24px 0;">
   <a href="${invoice.paymentAuthorizationUrl}"
-     style="background:#4B672D;color:#fff;padding:14px 28px;border-radius:999px;
+     style="background:#1E56CD;color:#fff;padding:14px 28px;border-radius:999px;
             text-decoration:none;font-weight:600;display:inline-block;">
     Pay Now
   </a>

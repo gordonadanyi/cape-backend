@@ -1,4 +1,4 @@
-import { ValidationPipe } from '@nestjs/common';
+﻿import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ConfigService } from '@nestjs/config';
@@ -8,10 +8,20 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule, { rawBody: true });
   const config = new DocumentBuilder()
     .setTitle('Invoice Automation API')
-    .setDescription('Invoice Automation API documentation')
+    .setDescription(
+      'API documentation for authentication, invoice management, payment links, and user settings.',
+    )
     .setVersion('1.0')
-    .addBearerAuth()
-    .addTag('Invoice')
+    .addBearerAuth({
+      type: 'http',
+      scheme: 'bearer',
+      bearerFormat: 'JWT',
+      description: 'Paste the JWT access token returned from login or signup.',
+    })
+    .addTag('auth', 'Signup, login, and password management')
+    .addTag('invoices', 'Upload, review, send, and manage invoices')
+    .addTag('settings', 'Authenticated user settings')
+    .addTag('payments', 'Paystack payment initialization and verification')
     .build();
 
   const configService = app.get(ConfigService);

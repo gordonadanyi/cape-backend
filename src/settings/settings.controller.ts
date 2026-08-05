@@ -1,32 +1,49 @@
-import { Body, Controller, Get, Patch, UseGuards, Req } from '@nestjs/common';
-import { SettingsService } from './settings.service';
+﻿import { Body, Controller, Get, Patch, UseGuards, Req } from '@nestjs/common';
+import {
+  ApiBearerAuth,
+  ApiBody,
+  ApiNotFoundResponse,
+  ApiOkResponse,
+  ApiOperation,
+  ApiTags,
+  ApiUnauthorizedResponse,
+} from '@nestjs/swagger';
+import { Types } from 'mongoose';
 import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
+import * as authRequest from 'src/auth/auth-request';
 import { UpdateProfileDto } from 'src/dto/update-profile.dto';
 import { UpdateEmailDto } from 'src/dto/update-email.dto';
 import { UpdateBrandingDto } from 'src/dto/update-branding.dto';
-import { Types } from 'mongoose';
-import * as authRequest from 'src/auth/auth-request';
 import { UpdateNotificationsDto } from 'src/dto/update-notifications.dto';
 import { UpdatePreferencesDto } from 'src/dto/update-preference.dto';
 import { UpdateRemindersDto } from 'src/dto/update-reminder.dto';
 import { UpdateSecurityDto } from 'src/dto/update-security.dto';
+import { SettingsService } from './settings.service';
 
+@ApiTags('settings')
+@ApiBearerAuth()
+@ApiUnauthorizedResponse({ description: 'Missing or invalid bearer token.' })
 @Controller('settings')
 @UseGuards(JwtAuthGuard)
 export class SettingsController {
   constructor(private readonly settingsService: SettingsService) {}
 
-  @Get() // return users settings
+  @Get()
+  @ApiOperation({
+    summary: 'Get or create settings for the authenticated user',
+  })
+  @ApiOkResponse({ description: 'Settings returned.' })
   getSettings(@Req() req: authRequest.AuthRequest) {
-    // const user = req.user as { userId: string };
     return this.settingsService.getOrCreateSettings(
       new Types.ObjectId(req.user.userId),
     );
   }
 
-  // @Post("create")// create default settings
-
-  @Patch('profile') // update settings
+  @Patch('profile')
+  @ApiOperation({ summary: 'Update profile settings' })
+  @ApiBody({ type: UpdateProfileDto })
+  @ApiOkResponse({ description: 'Profile settings updated.' })
+  @ApiNotFoundResponse({ description: 'Settings not found.' })
   updateProfile(
     @Req() req: authRequest.AuthRequest,
     @Body() dto: UpdateProfileDto,
@@ -37,7 +54,11 @@ export class SettingsController {
     );
   }
 
-  @Patch('branding') // update branding
+  @Patch('branding')
+  @ApiOperation({ summary: 'Update invoice branding settings' })
+  @ApiBody({ type: UpdateBrandingDto })
+  @ApiOkResponse({ description: 'Branding settings updated.' })
+  @ApiNotFoundResponse({ description: 'Settings not found.' })
   updateBranding(
     @Req() req: authRequest.AuthRequest,
     @Body() dto: UpdateBrandingDto,
@@ -49,6 +70,10 @@ export class SettingsController {
   }
 
   @Patch('email')
+  @ApiOperation({ summary: 'Update invoice email template settings' })
+  @ApiBody({ type: UpdateEmailDto })
+  @ApiOkResponse({ description: 'Email settings updated.' })
+  @ApiNotFoundResponse({ description: 'Settings not found.' })
   updateEmail(
     @Req() req: authRequest.AuthRequest,
     @Body() dto: UpdateEmailDto,
@@ -59,7 +84,11 @@ export class SettingsController {
     );
   }
 
-  @Patch('reminders') // update email reminders
+  @Patch('reminders')
+  @ApiOperation({ summary: 'Update reminder schedule and template settings' })
+  @ApiBody({ type: UpdateRemindersDto })
+  @ApiOkResponse({ description: 'Reminder settings updated.' })
+  @ApiNotFoundResponse({ description: 'Settings not found.' })
   updateReminders(
     @Req() req: authRequest.AuthRequest,
     @Body() dto: UpdateRemindersDto,
@@ -70,7 +99,11 @@ export class SettingsController {
     );
   }
 
-  @Patch('notifications') // update notifications
+  @Patch('notifications')
+  @ApiOperation({ summary: 'Update notification preferences' })
+  @ApiBody({ type: UpdateNotificationsDto })
+  @ApiOkResponse({ description: 'Notification settings updated.' })
+  @ApiNotFoundResponse({ description: 'Settings not found.' })
   updateNotifications(
     @Req() req: authRequest.AuthRequest,
     @Body() dto: UpdateNotificationsDto,
@@ -81,10 +114,13 @@ export class SettingsController {
     );
   }
 
-  // @Patch("security") // update security
-  // updateSecurity()
-
   @Patch('preferences')
+  @ApiOperation({
+    summary: 'Update locale, date, time zone, and currency preferences',
+  })
+  @ApiBody({ type: UpdatePreferencesDto })
+  @ApiOkResponse({ description: 'Preferences updated.' })
+  @ApiNotFoundResponse({ description: 'Settings not found.' })
   updatePreferences(
     @Req() req: authRequest.AuthRequest,
     @Body() dto: UpdatePreferencesDto,
@@ -96,6 +132,10 @@ export class SettingsController {
   }
 
   @Patch('security')
+  @ApiOperation({ summary: 'Update security preferences' })
+  @ApiBody({ type: UpdateSecurityDto })
+  @ApiOkResponse({ description: 'Security settings updated.' })
+  @ApiNotFoundResponse({ description: 'Settings not found.' })
   updateSecurity(
     @Req() req: authRequest.AuthRequest,
     @Body() dto: UpdateSecurityDto,

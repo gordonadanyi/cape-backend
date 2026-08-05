@@ -14,6 +14,7 @@ import { BullModule } from '@nestjs/bullmq';
 import { PaymentModule } from './payment/payment.module';
 import { APP_GUARD } from '@nestjs/core';
 
+
 @Module({
   imports: [
     BullModule.forRootAsync({
@@ -33,7 +34,7 @@ import { APP_GUARD } from '@nestjs/core';
       }),
     }),
     ThrottlerModule.forRoot({
-      throttlers: [{ limit: 4, ttl: 10 * 1000 }],
+      throttlers: [{ limit: 10, ttl: 10 * 1000 }],
       errorMessage: 'Too many request',
     }),
     AuthModule,
