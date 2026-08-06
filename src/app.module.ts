@@ -17,16 +17,18 @@ import { APP_GUARD } from '@nestjs/core';
 
 @Module({
   imports: [
+    ConfigModule.forRoot({ isGlobal: true }),
     BullModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
         connection: {
-          host: config.get<string>('REDIS_HOST') || 'localhost',
+          host: config.get<string>('REDIS_HOST'),
           port: Number(config.get<string>('REDIS_PORT')) || 6379,
+          password: config.get<string>('REDIS_PASSWORD'),
+          tls: {},
         },
       }),
     }),
-    ConfigModule.forRoot({ isGlobal: true }),
     MongooseModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
