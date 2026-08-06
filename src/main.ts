@@ -35,7 +35,7 @@ async function bootstrap() {
   );
 
   app.enableCors({
-    origin: 'http://localhost:5173',
+    origin: true,
     credentials: true,
   });
 
@@ -43,6 +43,7 @@ async function bootstrap() {
   SwaggerModule.setup('api', app, documentFactory);
 
   await app.listen(configService.get<string>('PORT') ?? 3000);
+  console.log(` Cape API running`);
 }
 bootstrap().catch((err) => {
   console.error('Error during application bootstrap', err);
