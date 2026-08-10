@@ -63,6 +63,7 @@ export class PaymentService {
       'FRONTEND_URL',
     )}/payment/success`;
 
+    this.logger.log(`Paystack callback URL: ${callbackUrl}`);
     const response = await axios.post(
       'https://api.paystack.co/transaction/initialize',
       {
