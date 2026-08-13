@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
-
+import { AuthModule } from '../auth/auth.module';
 import { NotificationService } from './notification.service';
 import { NotificationGateway } from './notification.gateway';
 import {
@@ -10,6 +10,7 @@ import {
 
 @Module({
   imports: [
+AuthModule,
     MongooseModule.forFeature([
       {
         name: Notification.name,
