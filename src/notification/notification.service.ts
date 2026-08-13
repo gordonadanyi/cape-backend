@@ -8,15 +8,22 @@ import {
   NotificationType,
 } from '../schema/notification.schema';
 
+import { NotificationGateway } from './notification.gateway';
+
 @Injectable()
 export class NotificationService {
   constructor(
     @InjectModel(Notification.name)
     private readonly notificationModel: Model<NotificationDocument>,
+
+    private readonly notificationGateway: NotificationGateway,
   ) {}
 
   /**
-   * Create a new notification
+   * Create a notification
+   *
+   * 1. Save it to MongoDB
+   * 2. Send it to the user's WebSocket room
    */
   async create(data: {
     userId: string;
@@ -37,6 +44,12 @@ export class NotificationService {
       metadata: data.metadata || {},
       isRead: false,
     });
+
+    /**
+     * Emit the newly-created notification
+     * to the user's WebSocket room.
+     */
+    this.notificationGateway.sendToUser(data.userId, notification);
 
     return notification;
   }
