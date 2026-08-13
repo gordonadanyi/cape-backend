@@ -13,7 +13,10 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { BullModule } from '@nestjs/bullmq';
 import { PaymentModule } from './payment/payment.module';
 import { APP_GUARD } from '@nestjs/core';
-
+import { NotificationController } from './notification/notification.controller';
+import { NotificationService } from './notification/notification.service';
+import { NotificationModule } from './notification/notification.module';
+import { ActivityModule } from './activity/activity.module';
 
 @Module({
   imports: [
@@ -44,8 +47,10 @@ import { APP_GUARD } from '@nestjs/core';
     SettingsModule,
     MailerModule,
     PaymentModule,
+    NotificationModule,
+    ActivityModule,
   ],
-  controllers: [AppController, MailerController],
+  controllers: [AppController, MailerController, NotificationController],
   providers: [
     AppService,
     MailerService,
@@ -53,6 +58,7 @@ import { APP_GUARD } from '@nestjs/core';
       provide: APP_GUARD,
       useClass: ThrottlerGuard,
     },
+    NotificationService,
   ],
 })
 export class AppModule {}
