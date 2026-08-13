@@ -5,6 +5,7 @@ import {
   OnGatewayDisconnect,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
+import { JwtService } from '@nestjs/jwt';
 
 @WebSocketGateway({
   namespace: '/notifications',
@@ -18,29 +19,82 @@ export class NotificationGateway
   @WebSocketServer()
   server!: Server;
 
-  handleConnection(socket: Socket) {
-    console.log(`Notification socket connected: ${socket.id}`);
+  constructor(private readonly jwtService: JwtService) {}
 
-    const token = socket.handshake.auth?.token;
+  async handleConnection(socket: Socket) {
+    console.log(
+      `Notification socket connected: ${socket.id}`,
+    );
 
-    if (!token) {
-      console.log('Notification socket connected without token');
+    try {
+      /*
+       * Get JWT sent by the frontend.
+       */
+      const token = socket.handshake.auth?.token;
+
+      if (!token) {
+        console.log(
+          `Socket ${socket.id} connected without token`,
+        );
+
+        socket.disconnect();
+
+        return;
+      }
+
+      /*
+       * Verify the JWT.
+       */
+      const payload = await this.jwtService.verifyAsync(token);
+
+      /*
+       * Your JWT may use one of these common names
+       * for the user ID.
+       *
+       * We support all three for safety.
+       */
+      const userId =
+        payload.sub ??
+        payload.userId ??
+        payload.id;
+
+      if (!userId) {
+        console.log(
+          `No user ID found in JWT for socket ${socket.id}`,
+        );
+
+        socket.disconnect();
+
+        return;
+      }
+
+      /*
+       * Store the authenticated user ID on the socket.
+       */
+      socket.data.userId = String(userId);
+
+      /*
+       * Put this socket into the user's private room.
+       */
+      const room = `user:${userId}`;
+
+      await socket.join(room);
+
+      console.log(
+        `Socket ${socket.id} authenticated for user ${userId}`,
+      );
+
+      console.log(
+        `Socket ${socket.id} joined ${room}`,
+      );
+    } catch (error) {
+      console.error(
+        `Notification socket authentication failed for ${socket.id}`,
+        error,
+      );
+
       socket.disconnect();
-      return;
     }
-
-    /**
-     * TEMPORARY:
-     * For now we can use the token as the authentication
-     * source, but we need to decode/verify it to obtain
-     * the actual user ID.
-     *
-     * We will connect this to your existing AuthService/JWT
-     * shortly.
-     */
-    console.log('Notification socket authenticated');
-
-    socket.data.token = token;
   }
 
   handleDisconnect(socket: Socket) {
@@ -49,7 +103,7 @@ export class NotificationGateway
     );
   }
 
-  /**
+  /*
    * Send a notification to one specific user.
    */
   sendToUser(
