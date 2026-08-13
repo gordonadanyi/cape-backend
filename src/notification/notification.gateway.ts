@@ -4,7 +4,6 @@ import {
   OnGatewayConnection,
   OnGatewayDisconnect,
 } from '@nestjs/websockets';
-
 import { Server, Socket } from 'socket.io';
 
 @WebSocketGateway({
@@ -22,37 +21,49 @@ export class NotificationGateway
   handleConnection(socket: Socket) {
     console.log(`Notification socket connected: ${socket.id}`);
 
-    /**
-     * The frontend should send the authenticated
-     * user's ID when connecting.
-     */
-    const userId = socket.handshake.auth?.userId;
+    const token = socket.handshake.auth?.token;
 
-    if (!userId) {
-      console.log('Notification socket connected without userId');
-
+    if (!token) {
+      console.log('Notification socket connected without token');
+      socket.disconnect();
       return;
     }
 
-    const room = `user:${userId}`;
+    /**
+     * TEMPORARY:
+     * For now we can use the token as the authentication
+     * source, but we need to decode/verify it to obtain
+     * the actual user ID.
+     *
+     * We will connect this to your existing AuthService/JWT
+     * shortly.
+     */
+    console.log('Notification socket authenticated');
 
-    socket.join(room);
-
-    console.log(`Socket ${socket.id} joined ${room}`);
+    socket.data.token = token;
   }
 
   handleDisconnect(socket: Socket) {
-    console.log(`Notification socket disconnected: ${socket.id}`);
+    console.log(
+      `Notification socket disconnected: ${socket.id}`,
+    );
   }
 
   /**
    * Send a notification to one specific user.
    */
-  sendToUser(userId: string, notification: any) {
+  sendToUser(
+    userId: string,
+    notification: any,
+  ) {
     const room = `user:${userId}`;
 
-    this.server.to(room).emit('notification', notification);
+    this.server
+      .to(room)
+      .emit('notification', notification);
 
-    console.log(`Notification emitted to ${room}`);
+    console.log(
+      `Notification emitted to ${room}`,
+    );
   }
 }
