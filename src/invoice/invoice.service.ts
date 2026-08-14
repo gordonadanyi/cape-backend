@@ -24,6 +24,8 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { generateReceiptPdf } from 'src/utils/receipt-pdf.util';
 import { PaymentService } from 'src/payment/payment.service';
+import { ActivityService } from '../activity/activity.service';
+import { ActivityType } from 'src/schema/activity.schema';
 
 @Injectable()
 export class InvoiceService {
@@ -37,6 +39,7 @@ export class InvoiceService {
     @InjectQueue(INVOICE_SENDING_QUEUE)
     private readonly invoiceQueue: Queue<InvoiceSendJobData>,
     private readonly paymentService: PaymentService,
+    private readonly activityService: ActivityService,
   ) {}
 
   /** Throws a clean 400 instead of letting an invalid id crash into an unhandled Mongoose CastError. */
@@ -92,7 +95,7 @@ export class InvoiceService {
     }
 
     try {
-      return await this.invoiceModel.create({
+      const invoice = await this.invoiceModel.create({
         userId,
         fileName: safeFileName,
         originalName: file.originalname,
@@ -114,11 +117,25 @@ export class InvoiceService {
         ),
         extractionWarnings: warnings,
       });
+
+      // Record invoice creation
+      await this.activityService.create({
+        userId: userId.toString(),
+        type: ActivityType.INVOICE_CREATED,
+        title: 'Invoice created',
+        description: invoice.invoiceNumber
+          ? `Invoice ${invoice.invoiceNumber} was created.`
+          : 'A new invoice was created.',
+        invoiceId: invoice._id.toString(),
+        metadata: {
+          invoiceNumber: invoice.invoiceNumber,
+          customerName: invoice.customerName,
+          amountDue: invoice.amountDue,
+        },
+      });
+
+      return invoice;
     } catch (err) {
-      // Duplicate (userId, invoiceNumber) — most likely the same invoice
-      // uploaded twice, or a genuine number clash across two of this user's
-      // clients. Either way, a raw Mongo E11000 shouldn't reach the client
-      // as an unhandled 500.
       if (this.isDuplicateKeyError(err)) {
         throw new ConflictException(
           extracted.invoiceNumber
@@ -126,6 +143,7 @@ export class InvoiceService {
             : 'This invoice conflicts with one you already uploaded.',
         );
       }
+
       throw err;
     }
   }
@@ -208,8 +226,28 @@ export class InvoiceService {
 
     await this.invoiceModel.updateOne(
       { _id: invoice._id },
-      { isSent: true, sentAt: new Date(), lastSendError: null },
+      {
+        isSent: true,
+        sentAt: new Date(),
+        lastSendError: null,
+      },
     );
+
+    // Record invoice sent activity
+    await this.activityService.create({
+      userId: userId.toString(),
+      type: ActivityType.INVOICE_SENT,
+      title: 'Invoice sent',
+      description: invoice.invoiceNumber
+        ? `Invoice ${invoice.invoiceNumber} was sent to ${invoice.customerEmail}.`
+        : `Invoice was sent to ${invoice.customerEmail}.`,
+      invoiceId: invoice._id.toString(),
+      metadata: {
+        invoiceNumber: invoice.invoiceNumber,
+        customerName: invoice.customerName,
+        customerEmail: invoice.customerEmail,
+      },
+    });
 
     return {
       message: 'Invoice sent successfully.',
@@ -314,6 +352,22 @@ export class InvoiceService {
     if (!updatedInvoice) {
       throw new NotFoundException(`Invoice with id ${id} not found`);
     }
+
+    // Record status change
+    await this.activityService.create({
+      userId: userId.toString(),
+      type: ActivityType.INVOICE_UPDATED,
+      title: 'Invoice status updated',
+      description: `Invoice ${
+        updatedInvoice.invoiceNumber || updatedInvoice._id
+      } was marked as ${updateDto.status}.`,
+      invoiceId: updatedInvoice._id.toString(),
+      metadata: {
+        invoiceNumber: updatedInvoice.invoiceNumber,
+        previousStatus: updatedInvoice.status,
+        newStatus: updateDto.status,
+      },
+    });
 
     return updatedInvoice;
   }
@@ -474,14 +528,41 @@ export class InvoiceService {
       throw new NotFoundException('Invoice not found');
     }
 
+    // Remove any scheduled BullMQ job for this invoice
     const pendingJob = await this.invoiceQueue.getJob(id);
+
     if (pendingJob) {
       await pendingJob.remove();
     }
 
+    // Create activity AFTER successful deletion
+    try {
+      await this.activityService.create({
+        userId: userId.toString(),
+        type: ActivityType.INVOICE_DELETED,
+        title: 'Invoice deleted',
+        description: deletedInvoice.invoiceNumber
+          ? `Invoice ${deletedInvoice.invoiceNumber} was deleted.`
+          : `Invoice for ${
+              deletedInvoice.customerName || 'customer'
+            } was deleted.`,
+        invoiceId: id,
+        metadata: {
+          invoiceNumber: deletedInvoice.invoiceNumber,
+          customerName: deletedInvoice.customerName,
+          customerEmail: deletedInvoice.customerEmail,
+          amountDue: deletedInvoice.amountDue,
+        },
+      });
+    } catch (error) {
+      this.logger.error(
+        `Failed to create activity for deleted invoice ${id}`,
+        error,
+      );
+    }
+
     return deletedInvoice;
   }
-
   private buildSubjectLine(customerName?: string): string {
     return customerName
       ? `Invoice Reminder for ${customerName}`

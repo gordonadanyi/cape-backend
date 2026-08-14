@@ -10,6 +10,7 @@ import { InvoiceSendingProcessor } from './invoice-sending.processor';
 import { INVOICE_SENDING_QUEUE } from 'src/types/invoice-send-job.types';
 import { PaymentModule } from 'src/payment/payment.module';
 import { InvoiceController } from './invoice.controller';
+import { ActivityModule } from 'src/activity/activity.module';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { InvoiceController } from './invoice.controller';
     ]),
     MailerModule,
     PaymentModule,
+    ActivityModule,
   ],
   controllers: [InvoiceController],
   providers: [

@@ -11,6 +11,7 @@ export enum ActivityType {
   INVOICE_SCHEDULED = 'invoice_scheduled',
   INVOICE_SENT = 'invoice_sent',
   INVOICE_VIEWED = 'invoice_viewed',
+  INVOICE_UPDATED = 'invoice_updated',
   SETTINGS_UPDATED = 'settings_updated',
   PAYMENT_INITIALIZED = 'payment_initialized',
   PAYMENT_VERIFIED = 'payment_verified',
