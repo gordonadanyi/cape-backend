@@ -19,6 +19,14 @@ AuthModule,
     ]),
   ],
 
+controllers: [
+
+    NotificationController,
+
+  ],
+
+
+
   providers: [NotificationService, NotificationGateway],
 
   exports: [NotificationService, NotificationGateway],
