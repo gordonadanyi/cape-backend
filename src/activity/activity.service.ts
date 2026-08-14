@@ -7,12 +7,15 @@ import {
   ActivityDocument,
   ActivityType,
 } from '../schema/activity.schema';
+import { NotificationGateway } from '../notification/notification.gateway';
 
 @Injectable()
 export class ActivityService {
   constructor(
     @InjectModel(Activity.name)
     private readonly activityModel: Model<ActivityDocument>,
+
+    private readonly notificationGateway: NotificationGateway,
   ) {}
 
   /**
@@ -36,6 +39,13 @@ export class ActivityService {
       paymentReference: data.paymentReference,
       metadata: data.metadata || {},
     });
+
+    /**
+     * Push the newly-created activity to the user's WebSocket room
+     * (same room/connection the notification gateway already manages),
+     * so the Activity tab updates live instead of only on refresh.
+     */
+    this.notificationGateway.emitToUser(data.userId, 'activity', activity);
 
     return activity;
   }

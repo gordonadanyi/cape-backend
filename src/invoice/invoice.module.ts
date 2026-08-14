@@ -11,6 +11,7 @@ import { INVOICE_SENDING_QUEUE } from 'src/types/invoice-send-job.types';
 import { PaymentModule } from 'src/payment/payment.module';
 import { InvoiceController } from './invoice.controller';
 import { ActivityModule } from 'src/activity/activity.module';
+import { NotificationModule } from 'src/notification/notification.module';
 
 @Module({
   imports: [
@@ -24,6 +25,7 @@ import { ActivityModule } from 'src/activity/activity.module';
     MailerModule,
     PaymentModule,
     ActivityModule,
+    NotificationModule,
   ],
   controllers: [InvoiceController],
   providers: [

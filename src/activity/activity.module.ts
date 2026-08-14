@@ -5,6 +5,7 @@ import { Activity, ActivitySchema } from '../schema/activity.schema';
 
 import { ActivityService } from './activity.service';
 import { ActivityController } from './activity.controller';
+import { NotificationModule } from '../notification/notification.module';
 
 @Module({
   imports: [
@@ -14,6 +15,7 @@ import { ActivityController } from './activity.controller';
         schema: ActivitySchema,
       },
     ]),
+    NotificationModule,
   ],
 
   controllers: [ActivityController],

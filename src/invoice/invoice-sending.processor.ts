@@ -12,6 +12,8 @@ import {
   INVOICE_SENDING_QUEUE,
 } from 'src/types/invoice-send-job.types';
 import { PaymentService } from 'src/payment/payment.service';
+import { NotificationService } from 'src/notification/notification.service';
+import { NotificationType } from 'src/schema/notification.schema';
 
 /**
  * The Worker for the 'invoice-sending' queue — this is what BullMQ calls
@@ -31,6 +33,7 @@ export class InvoiceSendingProcessor extends WorkerHost {
     @InjectModel(Settings.name) private readonly settingsModel: Model<Settings>,
     private readonly mailerService: MailerService,
     private readonly paymentService: PaymentService,
+    private readonly notificationService: NotificationService,
   ) {
     super();
   }
@@ -123,6 +126,17 @@ export class InvoiceSendingProcessor extends WorkerHost {
       this.logger.log(
         `Sent invoice ${invoice._id} to ${invoice.customerEmail}`,
       );
+
+      await this.notificationService.create({
+        userId: invoice.userId.toString(),
+        type: NotificationType.INVOICE_SCHEDULED_SENT,
+        title: 'Invoice sent',
+        message: invoice.invoiceNumber
+          ? `Invoice ${invoice.invoiceNumber} was sent to ${invoice.customerEmail}.`
+          : `Invoice was sent to ${invoice.customerEmail}.`,
+        invoiceId: invoice._id.toString(),
+        metadata: { invoiceNumber: invoice.invoiceNumber },
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown send error';
 

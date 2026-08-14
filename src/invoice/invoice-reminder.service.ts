@@ -12,6 +12,8 @@ import { Settings } from '../schema/settings.schema';
 import { MailerService } from 'src/mailer/mailer.service';
 import { buildReminderEmailHtml } from 'src/utils/reminder-email.utils';
 import { PaymentService } from 'src/payment/payment.service';
+import { NotificationService } from 'src/notification/notification.service';
+import { NotificationType } from 'src/schema/notification.schema';
 
 const BATCH_SIZE = 50;
 
@@ -46,6 +48,7 @@ export class InvoiceReminderService implements OnModuleInit, OnModuleDestroy {
     private readonly mailerService: MailerService,
     private readonly configService: ConfigService,
     private readonly paymentService: PaymentService,
+    private readonly notificationService: NotificationService,
   ) {
     this.pollIntervalMs =
       Number(this.configService.get<string>('REMINDER_POLL_INTERVAL_MS')) ||
@@ -199,6 +202,17 @@ export class InvoiceReminderService implements OnModuleInit, OnModuleDestroy {
       this.logger.log(
         `Sent "${type}" reminder for invoice ${invoice._id} to ${invoice.customerEmail}`,
       );
+
+      await this.notificationService.create({
+        userId: invoice.userId.toString(),
+        type: this.notificationTypeForStage(type),
+        title: this.notificationTitleForStage(type),
+        message: invoice.invoiceNumber
+          ? `${this.notificationTitleForStage(type)}: invoice ${invoice.invoiceNumber} for ${invoice.customerName || invoice.customerEmail}.`
+          : `${this.notificationTitleForStage(type)} for ${invoice.customerName || invoice.customerEmail}.`,
+        invoiceId: invoice._id.toString(),
+        metadata: { invoiceNumber: invoice.invoiceNumber, stage: type },
+      });
     } catch (err) {
       const message =
         err instanceof Error ? err.message : 'Unknown reminder send error';
@@ -242,6 +256,28 @@ export class InvoiceReminderService implements OnModuleInit, OnModuleDestroy {
     const result = new Date(date);
     result.setDate(result.getDate() + days);
     return result;
+  }
+
+  private notificationTypeForStage(type: ReminderType): NotificationType {
+    switch (type) {
+      case 'before':
+        return NotificationType.REMINDER_SENT;
+      case 'onDue':
+        return NotificationType.INVOICE_DUE_TODAY;
+      case 'after':
+        return NotificationType.INVOICE_OVERDUE;
+    }
+  }
+
+  private notificationTitleForStage(type: ReminderType): string {
+    switch (type) {
+      case 'before':
+        return 'Reminder sent';
+      case 'onDue':
+        return 'Invoice due today';
+      case 'after':
+        return 'Invoice overdue';
+    }
   }
 
   /** Compares calendar day in the given IANA timezone, not raw UTC. */

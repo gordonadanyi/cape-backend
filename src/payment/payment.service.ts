@@ -14,6 +14,8 @@ import { Invoice } from '../schema/invoice.schema';
 import { Settings } from '../schema/settings.schema';
 import { MailerService } from '../mailer/mailer.service';
 import { generateReceiptPdf } from '../utils/receipt-pdf.util';
+import { NotificationService } from '../notification/notification.service';
+import { NotificationType } from '../schema/notification.schema';
 
 @Injectable()
 export class PaymentService {
@@ -32,6 +34,7 @@ export class PaymentService {
     private readonly settingsModel: Model<Settings>,
     private readonly configService: ConfigService,
     private readonly mailerService: MailerService,
+    private readonly notificationService: NotificationService,
   ) {}
 
   async initializePayment(invoiceId: string) {
@@ -196,6 +199,18 @@ export class PaymentService {
     }
 
     if (paystackStatus === 'failed' || paystackStatus === 'abandoned') {
+      await this.notificationService.create({
+        userId: invoice.userId.toString(),
+        type: NotificationType.PAYMENT_FAILED,
+        title: 'Payment failed',
+        message: invoice.invoiceNumber
+          ? `A payment attempt for invoice ${invoice.invoiceNumber} did not go through.`
+          : 'A payment attempt did not go through.',
+        invoiceId: invoice._id.toString(),
+        paymentReference: reference,
+        metadata: { paystackStatus },
+      });
+
       return this.toVerifyResponse(invoice, 'failed');
     }
 
@@ -254,6 +269,21 @@ export class PaymentService {
     this.logger.log(
       `Invoice ${invoice._id} marked paid via Paystack (ref ${reference})`,
     );
+
+    await this.notificationService.create({
+      userId: invoice.userId.toString(),
+      type: NotificationType.INVOICE_PAID,
+      title: 'Invoice paid',
+      message: invoice.invoiceNumber
+        ? `Invoice ${invoice.invoiceNumber} was paid by ${invoice.customerName || invoice.customerEmail || 'the customer'}.`
+        : `An invoice was paid by ${invoice.customerName || invoice.customerEmail || 'the customer'}.`,
+      invoiceId: invoice._id.toString(),
+      paymentReference: reference,
+      metadata: {
+        invoiceNumber: invoice.invoiceNumber,
+        amountPaid: invoice.amountPaid,
+      },
+    });
 
     await this.sendReceipt(invoice);
 
