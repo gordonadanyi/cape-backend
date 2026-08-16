@@ -21,9 +21,7 @@ AuthModule,
   ],
 
 controllers: [
-
     NotificationController,
-
   ],
 
 
