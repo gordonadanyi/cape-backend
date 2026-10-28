@@ -34,11 +34,16 @@ async function bootstrap() {
     }),
   );
 
+  // app.enableCors({
+  //   origin: process.env.FRONTEND_URL?.split(","),
+  //   credentials: true,
+  // });
   app.enableCors({
-    origin: process.env.FRONTEND_URL?.split(","),
+    origin: ['https://cape-six.vercel.app', 'http://localhost:5173'],
+    methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true,
   });
-
   const documentFactory = () => SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api', app, documentFactory);
 
