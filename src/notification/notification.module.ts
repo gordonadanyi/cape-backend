@@ -11,7 +11,7 @@ import {
 
 @Module({
   imports: [
-AuthModule,
+    AuthModule,
     MongooseModule.forFeature([
       {
         name: Notification.name,
@@ -20,11 +20,7 @@ AuthModule,
     ]),
   ],
 
-controllers: [
-    NotificationController,
-  ],
-
-
+  controllers: [NotificationController],
 
   providers: [NotificationService, NotificationGateway],
 
